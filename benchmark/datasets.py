@@ -1476,4 +1476,5 @@ DATASETS = {
     'dino-1B': lambda: DINO10BDataset(1000),
     'dino-100M': lambda: DINO10BDataset(100),
     'dino-10M': lambda: DINO10BDataset(10),
+    'dino-1M': lambda: DINO10BDataset(1),
 }

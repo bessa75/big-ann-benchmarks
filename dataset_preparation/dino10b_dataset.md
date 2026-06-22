@@ -35,7 +35,7 @@ The base vectors are split across 50 chunk files (`chunk_0000.bvecs` through `ch
 **Queries and ground truth:**
 ```bash
 wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/queries_clean.bvecs
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts/gts_dino_patch_10000000000_k10.npy
+wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts_bin/gts_dino_patch_10000000000_k10.bin
 ```
 
 **Base vectors (50 chunks):**
@@ -43,11 +43,6 @@ wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts/gts_dino_patc
 wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/chunked_base_10B/chunk_0000.bvecs
 wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/chunked_base_10B/chunk_0001.bvecs
 # ... through chunk_0049.bvecs
-```
-
-A complete file list is available at:
-```bash
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/file_list.txt
 ```
 
 
@@ -98,8 +93,11 @@ wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts_bin/gts_dino_
 
 Image patches from the YFCC100M dataset were processed through a DINOv3 ViT-L/16 model ([facebook/dinov3-vitl16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m)). The resulting embeddings were quantized to uint8 and stored in chunked `.bvecs` format for efficient streaming access.
 
+### Training Set
+
+A training set ([`train_queries_99M.bvecs`](http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/train_queries_99M.bvecs), ~100GB) containing 99 million vectors is available for training quantizers or other index structures.
+
 ### Notes
 
 - Each chunk file contains exactly 200 million vectors. When using a dataset size that is not a multiple of 200M, only a prefix of the last required chunk is used.
 - For large batch sizes, prefer batch sizes that are divisors of 200,000,000 to avoid splitting batches across chunk boundaries, which causes overhead from concatenation.
-- The training set (`train_queries_99M.bvecs`, ~400GB) contains 99 million vectors and is available for training quantizers or other index structures.

@@ -16,7 +16,7 @@ from urllib.request import urlretrieve
 from .dataset_io import (
     xbin_mmap, download_accelerated, download, sanitize,
     knn_result_read, range_result_read, read_sparse_matrix,
-    write_sparse_matrix,
+    write_sparse_matrix, bvecs_mmap,
 )
 
 
@@ -1315,6 +1315,96 @@ class OpenAIEmbedding1M(DatasetCompetitionFormat):
         return f"{self.__class__.__name__}-{self.nb}"
 
 
+class DINO10BDataset(DatasetCompetitionFormat):
+    """
+    10 billion 1024-d uint8 vectors extracted from YFCC100M image patches
+    using a DINOv3 ViT-L/16 model (facebook/dinov3-vitl16-pretrain-lvd1689m).
+    Data is stored as chunked .bvecs files (50 chunks, 200M vectors each).
+    """
+
+    VECTORS_PER_CHUNK = 200_000_000
+
+    def __init__(self, nb_M=10000):
+        self.nb = nb_M * 10**6
+        self.d = 1024
+        self.nq = 100_000
+        self.dtype = "uint8"
+        self.basedir = os.path.join(BASEDIR, "dino_vitl_10B")
+        self.base_url = (
+            "http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B")
+        self.num_chunks = math.ceil(self.nb / self.VECTORS_PER_CHUNK)
+        self.gt_fn = "gts_bin/gts_dino_patch_%d_k10.bin" % self.nb
+        self.qs_fn = None
+        self.ds_fn = None
+        self.private_qs_url = None
+        self.private_gt_url = None
+
+    def prepare(self, skip_data=False):
+        if not os.path.exists(self.basedir):
+            os.makedirs(self.basedir)
+
+        qs_path = os.path.join(self.basedir, "queries_clean.bvecs")
+        if not os.path.exists(qs_path):
+            download(self.base_url + "/queries_clean.bvecs", qs_path)
+
+        gt_dir = os.path.join(self.basedir, "gts_bin")
+        if not os.path.exists(gt_dir):
+            os.makedirs(gt_dir)
+        gt_fn = "gts_dino_patch_%d_k10.bin" % self.nb
+        gt_path = os.path.join(gt_dir, gt_fn)
+        if not os.path.exists(gt_path):
+            download(self.base_url + "/gts_bin/" + gt_fn, gt_path)
+
+        if skip_data:
+            return
+
+        chunk_dir = os.path.join(self.basedir, "chunked_base_10B")
+        if not os.path.exists(chunk_dir):
+            os.makedirs(chunk_dir)
+        for i in range(self.num_chunks):
+            chunk_fn = "chunk_%04d.bvecs" % i
+            chunk_path = os.path.join(chunk_dir, chunk_fn)
+            if not os.path.exists(chunk_path):
+                download_accelerated(
+                    self.base_url + "/chunked_base_10B/" + chunk_fn,
+                    chunk_path)
+
+    def get_queries(self):
+        qs_path = os.path.join(self.basedir, "queries_clean.bvecs")
+        return sanitize(bvecs_mmap(qs_path)[:self.nq])
+
+    def get_dataset_iterator(self, bs=512, split=(1, 0)):
+        n_parts, part = split
+        part_start = (self.nb * part) // n_parts
+        part_end = (self.nb * (part + 1)) // n_parts
+
+        chunk_dir = os.path.join(self.basedir, "chunked_base_10B")
+        global_offset = 0
+        for i in range(self.num_chunks):
+            chunk_path = os.path.join(chunk_dir, "chunk_%04d.bvecs" % i)
+            chunk_data = bvecs_mmap(chunk_path)
+            n_in_chunk = chunk_data.shape[0]
+            chunk_end = global_offset + n_in_chunk
+
+            if chunk_end <= part_start:
+                global_offset = chunk_end
+                continue
+            if global_offset >= part_end:
+                break
+
+            lo = max(0, part_start - global_offset)
+            hi = min(n_in_chunk, part_end - global_offset)
+
+            for start in range(lo, hi, bs):
+                end = min(start + bs, hi)
+                yield sanitize(chunk_data[start:end])
+
+            global_offset = chunk_end
+
+    def distance(self):
+        return "euclidean"
+
+
 
 DATASETS = {
     'bigann-1B': lambda : BigANNDataset(1000),
@@ -1384,4 +1474,9 @@ DATASETS = {
     'random-filter-s': lambda : RandomFilterDS(100000, 1000, 50),
 
     'openai-embedding-1M': lambda: OpenAIEmbedding1M(93652),
+
+    'dino-10B': lambda: DINO10BDataset(10000),
+    'dino-1B': lambda: DINO10BDataset(1000),
+    'dino-100M': lambda: DINO10BDataset(100),
+    'dino-10M': lambda: DINO10BDataset(10),
 }

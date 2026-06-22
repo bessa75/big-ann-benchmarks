@@ -1333,7 +1333,7 @@ class DINO10BDataset(DatasetCompetitionFormat):
         self.base_url = (
             "http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B")
         self.num_chunks = math.ceil(self.nb / self.VECTORS_PER_CHUNK)
-        self.gt_fn = "gts_bin/gts_dino_patch_%d_k10.bin" % self.nb
+        self.gt_fn = "gts_dino_patch_%d_k10.bin" % self.nb
         self.qs_fn = None
         self.ds_fn = None
         self.private_qs_url = None
@@ -1347,11 +1347,8 @@ class DINO10BDataset(DatasetCompetitionFormat):
         if not os.path.exists(qs_path):
             download(self.base_url + "/queries_clean.bvecs", qs_path)
 
-        gt_dir = os.path.join(self.basedir, "gts_bin")
-        if not os.path.exists(gt_dir):
-            os.makedirs(gt_dir)
         gt_fn = "gts_dino_patch_%d_k10.bin" % self.nb
-        gt_path = os.path.join(gt_dir, gt_fn)
+        gt_path = os.path.join(self.basedir, gt_fn)
         if not os.path.exists(gt_path):
             download(self.base_url + "/gts_bin/" + gt_fn, gt_path)
 

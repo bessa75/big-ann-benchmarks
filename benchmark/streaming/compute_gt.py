@@ -126,7 +126,7 @@ def main():
         case 'int8':
             common_cmd += 'int8'
         case 'uint8':
-            commond_cmd += 'uint8'
+            common_cmd += 'uint8'
         case _:
             raise RuntimeError('Invalid datatype')
     common_cmd += ' --K 100'

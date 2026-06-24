@@ -1322,7 +1322,7 @@ class DINO10BDataset(DatasetCompetitionFormat):
     Data is stored as chunked .bvecs files (50 chunks, 200M vectors each)
     and converted to u8bin format for algorithm compatibility.
     Sizes above ~4B vectors use chunked bvecs directly (uint32 header
-    limit).
+    limit). License: CC BY-NC.
     """
 
     VECTORS_PER_CHUNK = 200_000_000
@@ -1343,6 +1343,7 @@ class DINO10BDataset(DatasetCompetitionFormat):
                       if self.nb <= np.iinfo(np.uint32).max else None)
         self.private_qs_url = None
         self.private_gt_url = None
+        self.private_nq = 0
 
     def _chunk_url(self, i):
         return self.base_url + "/chunked_base_10B/chunk_%04d.bvecs" % i
@@ -1487,7 +1488,9 @@ class DINO10BDataset(DatasetCompetitionFormat):
             hi = min(n_in_chunk, end - global_offset)
             parts.append(chunk[lo:hi])
             global_offset = chunk_end
-        return np.vstack(parts) if len(parts) > 1 else parts[0]
+        if len(parts) == 0:
+            return np.empty((0, self.d), dtype=self.dtype)
+        return sanitize(np.vstack(parts) if len(parts) > 1 else parts[0])
 
     def get_queries(self):
         qs_path = os.path.join(self.basedir, "queries_clean.bvecs")

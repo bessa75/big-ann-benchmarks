@@ -100,4 +100,3 @@ A training set ([`train_queries_99M.bvecs`](http://dl.fbaipublicfiles.com/large_
 ### Notes
 
 - Each chunk file contains exactly 200 million vectors. When using a dataset size that is not a multiple of 200M, only a prefix of the last required chunk is used.
-- For large batch sizes, prefer batch sizes that are divisors of 200,000,000 to avoid splitting batches across chunk boundaries, which causes overhead from concatenation.

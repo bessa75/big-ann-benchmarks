@@ -1319,12 +1319,16 @@ class DINO10BDataset(DatasetCompetitionFormat):
     """
     10 billion 1024-d uint8 vectors extracted from YFCC100M image patches
     using a DINOv3 ViT-L/16 model (facebook/dinov3-vitl16-pretrain-lvd1689m).
-    Data is stored as chunked .bvecs files (50 chunks, 200M vectors each).
+    Data is stored as chunked .bvecs files (50 chunks, 200M vectors each)
+    and converted to u8bin format for algorithm compatibility.
+    Sizes above ~4B vectors use chunked bvecs directly (uint32 header
+    limit).
     """
 
     VECTORS_PER_CHUNK = 200_000_000
 
     def __init__(self, nb_M=10000):
+        self.nb_M = nb_M
         self.nb = nb_M * 10**6
         self.d = 1024
         self.nq = 100_000
@@ -1335,9 +1339,27 @@ class DINO10BDataset(DatasetCompetitionFormat):
         self.num_chunks = math.ceil(self.nb / self.VECTORS_PER_CHUNK)
         self.gt_fn = "gts_dino_patch_%d_k10.bin" % self.nb
         self.qs_fn = None
-        self.ds_fn = None
+        self.ds_fn = ("dino_base_%d.u8bin" % self.nb
+                      if self.nb <= np.iinfo(np.uint32).max else None)
         self.private_qs_url = None
         self.private_gt_url = None
+
+    def _chunk_url(self, i):
+        return self.base_url + "/chunked_base_10B/chunk_%04d.bvecs" % i
+
+    def _chunk_path(self, chunk_dir, i, n_vectors=None):
+        fn = os.path.join(chunk_dir, "chunk_%04d.bvecs" % i)
+        if n_vectors is not None and n_vectors < self.VECTORS_PER_CHUNK:
+            fn += '.crop_nb_%d' % n_vectors
+        return fn
+
+    def _resolve_chunk(self, chunk_dir, i):
+        full = self._chunk_path(chunk_dir, i)
+        if os.path.exists(full):
+            return full
+        n = min(self.nb - i * self.VECTORS_PER_CHUNK,
+                self.VECTORS_PER_CHUNK)
+        return self._chunk_path(chunk_dir, i, n)
 
     def prepare(self, skip_data=False):
         if not os.path.exists(self.basedir):
@@ -1355,52 +1377,124 @@ class DINO10BDataset(DatasetCompetitionFormat):
         if skip_data:
             return
 
+        if self.ds_fn is not None:
+            xbin_path = os.path.join(self.basedir, self.ds_fn)
+            if os.path.exists(xbin_path):
+                print("file %s already exists" % xbin_path)
+                return
+
         chunk_dir = os.path.join(self.basedir, "chunked_base_10B")
         if not os.path.exists(chunk_dir):
             os.makedirs(chunk_dir)
-        for i in range(self.num_chunks):
-            chunk_fn = "chunk_%04d.bvecs" % i
-            chunk_path = os.path.join(chunk_dir, chunk_fn)
-            if not os.path.exists(chunk_path):
-                download_accelerated(
-                    self.base_url + "/chunked_base_10B/" + chunk_fn,
-                    chunk_path)
 
-    def get_queries(self):
-        qs_path = os.path.join(self.basedir, "queries_clean.bvecs")
-        return sanitize(bvecs_mmap(qs_path)[:self.nq])
+        bvec_size = self.d + 4
+        remaining = self.nb
+        for i in range(self.num_chunks):
+            n_from_chunk = min(remaining, self.VECTORS_PER_CHUNK)
+            full_path = self._chunk_path(chunk_dir, i)
+            if os.path.exists(full_path):
+                remaining -= n_from_chunk
+                continue
+            crop_path = self._chunk_path(chunk_dir, i, n_from_chunk)
+            if os.path.exists(crop_path):
+                remaining -= n_from_chunk
+                continue
+            if n_from_chunk < self.VECTORS_PER_CHUNK:
+                download(self._chunk_url(i), crop_path,
+                         max_size=n_from_chunk * bvec_size)
+            else:
+                download_accelerated(self._chunk_url(i), full_path)
+            remaining -= n_from_chunk
+
+        if self.ds_fn is None:
+            return
+
+        print("Converting bvecs chunks to %s" % self.ds_fn)
+        batch = 1_000_000
+        try:
+            with open(xbin_path, 'wb') as f:
+                np.array([self.nb, self.d], dtype='uint32').tofile(f)
+                written = 0
+                for i in range(self.num_chunks):
+                    n_needed = min(self.nb - written,
+                                   self.VECTORS_PER_CHUNK)
+                    full_path = self._chunk_path(chunk_dir, i)
+                    crop_path = self._chunk_path(chunk_dir, i, n_needed)
+                    path = (full_path if os.path.exists(full_path)
+                            else crop_path)
+                    chunk = bvecs_mmap(path)
+                    for j in range(0, n_needed, batch):
+                        end = min(j + batch, n_needed)
+                        np.ascontiguousarray(chunk[j:end]).tofile(f)
+                    written += n_needed
+                    if written >= self.nb:
+                        break
+        except Exception:
+            if os.path.exists(xbin_path):
+                os.remove(xbin_path)
+            raise
+        print("Created %s (%d vectors)" % (self.ds_fn, self.nb))
+
+    def get_dataset_fn(self):
+        if self.ds_fn is None:
+            raise RuntimeError(
+                "DINO %dB exceeds u8bin uint32 header limit. "
+                "Use get_dataset_iterator() instead."
+                % (self.nb // 10**9))
+        return super().get_dataset_fn()
 
     def get_dataset_iterator(self, bs=512, split=(1, 0)):
+        if self.ds_fn is not None:
+            for batch in super().get_dataset_iterator(bs, split):
+                yield batch
+            return
         n_parts, part = split
         part_start = (self.nb * part) // n_parts
         part_end = (self.nb * (part + 1)) // n_parts
-
         chunk_dir = os.path.join(self.basedir, "chunked_base_10B")
         global_offset = 0
         for i in range(self.num_chunks):
-            chunk_path = os.path.join(chunk_dir, "chunk_%04d.bvecs" % i)
-            chunk_data = bvecs_mmap(chunk_path)
-            n_in_chunk = chunk_data.shape[0]
+            chunk = bvecs_mmap(self._resolve_chunk(chunk_dir, i))
+            n_in_chunk = chunk.shape[0]
             chunk_end = global_offset + n_in_chunk
-
             if chunk_end <= part_start:
                 global_offset = chunk_end
                 continue
             if global_offset >= part_end:
                 break
-
             lo = max(0, part_start - global_offset)
             hi = min(n_in_chunk, part_end - global_offset)
-
-            for start in range(lo, hi, bs):
-                end = min(start + bs, hi)
-                yield sanitize(chunk_data[start:end])
-
+            for j in range(lo, hi, bs):
+                yield sanitize(chunk[j:min(j + bs, hi)])
             global_offset = chunk_end
+
+    def get_data_in_range(self, start, end):
+        if self.ds_fn is not None:
+            return super().get_data_in_range(start, end)
+        chunk_dir = os.path.join(self.basedir, "chunked_base_10B")
+        parts = []
+        global_offset = 0
+        for i in range(self.num_chunks):
+            chunk = bvecs_mmap(self._resolve_chunk(chunk_dir, i))
+            n_in_chunk = chunk.shape[0]
+            chunk_end = global_offset + n_in_chunk
+            if chunk_end <= start:
+                global_offset = chunk_end
+                continue
+            if global_offset >= end:
+                break
+            lo = max(0, start - global_offset)
+            hi = min(n_in_chunk, end - global_offset)
+            parts.append(chunk[lo:hi])
+            global_offset = chunk_end
+        return np.vstack(parts) if len(parts) > 1 else parts[0]
+
+    def get_queries(self):
+        qs_path = os.path.join(self.basedir, "queries_clean.bvecs")
+        return sanitize(bvecs_mmap(qs_path)[:self.nq])
 
     def distance(self):
         return "euclidean"
-
 
 
 DATASETS = {
@@ -1473,6 +1567,8 @@ DATASETS = {
     'openai-embedding-1M': lambda: OpenAIEmbedding1M(93652),
 
     'dino-10B': lambda: DINO10BDataset(10000),
+    'dino-5B': lambda: DINO10BDataset(5000),
+    'dino-2B': lambda: DINO10BDataset(2000),
     'dino-1B': lambda: DINO10BDataset(1000),
     'dino-100M': lambda: DINO10BDataset(100),
     'dino-10M': lambda: DINO10BDataset(10),

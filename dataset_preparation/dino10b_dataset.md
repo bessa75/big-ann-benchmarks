@@ -1,20 +1,30 @@
-# DINO 10B Dataset
+# DINO Dataset
 
-This file describes a public vector benchmark consisting of 10 billion 1024-dimensional uint8 vectors extracted from image patches in the [YFCC100M dataset](https://multimediacommons.wordpress.com/yfcc100m-core-dataset/) using a [DINOv3 ViT-L/16 model](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m).
+This file describes a public dense-vector benchmark of 1024-dimensional `uint8`
+vectors extracted from image patches in the
+[YFCC100M dataset](https://multimediacommons.wordpress.com/yfcc100m-core-dataset/)
+using a [DINOv3 ViT-L/16 model](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m).
 
-The dataset is one of the largest publicly available dense vector benchmarks, designed for evaluating approximate nearest neighbor search at extreme scale.
+The full corpus contains 10 billion vectors, making it one of the largest
+publicly available dense-vector benchmarks for approximate nearest neighbor
+search. Within this framework we expose **subsets of up to 2 billion vectors**
+(`dino-1M` … `dino-2B`). 2B is the largest size whose vector count still fits
+the 32-bit header of the competition `.u8bin` format (max ≈ 4.29B).
 
 
 ## License
 
-The original YFCC100M images are licensed under various [Creative Commons Licenses](http://www.creativecommons.org/) (see the metadata for each image). The embedding vectors and auxiliary files are released by Meta.
+The original YFCC100M images are licensed under various
+[Creative Commons Licenses](http://www.creativecommons.org/) (see the metadata
+for each image). The embedding vectors and auxiliary files are released by Meta
+under the [Creative Commons Attribution-NonCommercial 4.0 (CC BY-NC) license](https://creativecommons.org/licenses/by-nc/4.0/).
 
 
 ## Dataset Properties
 
 | Property | Value |
 |----------|-------|
-| Base vectors | 10,000,000,000 (10B) |
+| Base vectors | up to 2,000,000,000 (2B) in this framework (10B corpus available) |
 | Dimensions | 1024 |
 | Data type | uint8 |
 | Query vectors | 100,000 |
@@ -23,81 +33,94 @@ The original YFCC100M images are licensed under various [Creative Commons Licens
 | Ground truth | Top-10 nearest neighbors |
 
 
+## Using the dataset in this framework
+
+The dataset is registered in `benchmark/datasets.py` as `DINO10BDataset`
+(a subclass of `BillionScaleDatasetCompetitionFormat`). Prepare a size with:
+
+```bash
+python create_dataset.py --dataset dino-1M       # base + queries + ground truth
+python create_dataset.py --dataset dino-1M --skip-data   # queries + ground truth only
+```
+
+Registered sizes:
+
+| name | base vectors | source file | download |
+|------|--------------|-------------|----------|
+| `dino-100K` | 100,000       | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-200K` | 200,000       | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-500K` | 500,000       | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-1M`   | 1,000,000     | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-5M`   | 5,000,000     | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-10M`  | 10,000,000    | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-20M`  | 20,000,000    | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-50M`  | 50,000,000    | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-100M` | 100,000,000   | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-200M` | 200,000,000   | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-500M` | 500,000,000   | `dino_vitl_1B_base.u8bin` | first-N prefix (cropped) |
+| `dino-1B`   | 1,000,000,000 | `dino_vitl_1B_base.u8bin` | full file (accelerated) |
+| `dino-2B`   | 2,000,000,000 | `dino_vitl_2B_base.u8bin` | full file (accelerated) |
+
+For every size below 1B, only the **first N vectors** of the 1B file are
+downloaded (an 8-byte header plus `N × 1024` bytes), and the header's vector
+count is rewritten to N. This means a researcher on a small machine never has
+to fetch the whole 1B file — e.g. `dino-1M` downloads ~1 GB rather than ~1 TB.
+Sizes of exactly 1B or 2B download the corresponding complete file with the
+[Axel download accelerator](https://github.com/axel-download-accelerator/axel)
+(`axel`), so make sure it is on your `PATH` for those sizes.
+
+
 ## Files and Format
 
-The dataset uses the `.bvecs` binary format. In this format, each vector is stored as a 4-byte little-endian integer (the dimension), followed by `d` bytes of uint8 vector data. This per-vector header is repeated for every vector in the file.
+All files live under
+`http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/`.
 
-The base vectors are split across 50 chunk files (`chunk_0000.bvecs` through `chunk_0049.bvecs`), each containing 200 million vectors (~200GB per chunk). The total dataset size is approximately 10 TB.
+**Base vectors** use the competition `.u8bin` format: an 8-byte header of two
+little-endian `uint32` values (`n`, `d`), followed by `n × d` `uint8` bytes
+(row-major). The two published files are:
 
+```bash
+# 1B vectors  (header [1000000000, 1024]; ~1 TB)
+wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/dino_vitl_1B_base.u8bin
+# 2B vectors  (header [2000000000, 1024]; ~2 TB)
+wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/dino_vitl_2B_base.u8bin
+```
 
-### Download URLs
+**Queries** use the `.bvecs` format (each vector is a 4-byte little-endian
+`int32` dimension followed by `d` `uint8` bytes). There are 100,000 queries,
+shared across all sizes:
 
-**Queries and ground truth:**
 ```bash
 wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/queries_clean.bvecs
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts_bin/gts_dino_patch_10000000000_k10.bin
 ```
 
-**Base vectors (50 chunks):**
-```bash
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/chunked_base_10B/chunk_0000.bvecs
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/chunked_base_10B/chunk_0001.bvecs
-# ... through chunk_0049.bvecs
-```
+**Ground truth** is pre-computed per size (always the first N vectors of the
+corpus). Files use the standard competition KNN format: a header of two
+`uint32` values (`nq`, `k`), then `nq × k` `int32` neighbor indices, then
+`nq × k` `float32` L2 distances. Each file has 100,000 queries × 10 neighbors:
 
-
-### Accelerated Download
-
-Due to the large size of the data (~10 TB), we recommend using the [Axel download accelerator](https://github.com/axel-download-accelerator/axel):
-
-```bash
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/file_list.txt
-
-base_dir="data/dino_vitl_10B"
-mkdir -p "$base_dir/chunked_base_10B" "$base_dir/gts"
-
-while read -r url; do
-  path=$(echo "$url" | sed -E 's|https?://[^/]+/||')
-  rel=$(echo "$path" | cut -d/ -f3-)
-  [ -z "$rel" ] && rel=$(basename "$path")
-  out="$base_dir/$rel"
-  mkdir -p "$(dirname "$out")"
-  axel -n 16 -a -o "$out" "$url"
-done < file_list.txt
-rm file_list.txt
-```
-
-
-### Supported Subset Sizes
-
-Ground truth files are pre-computed for the following dataset sizes (always using the first N vectors from the chunked files):
-
-100K, 200K, 500K, 1M, 2M, 5M, 10M, 20M, 50M, 100M, 200M, 500M, 1B, 2B, 5B, 10B
-
-For smaller subsets, only the necessary chunk files need to be downloaded (each chunk contains 200M vectors).
-
-
-### Ground Truth Format
-
-Ground truth files are stored in the standard competition binary format: a header of two `uint32` values (`nq`, `k`), followed by `nq × k` `int32` nearest neighbor indices, followed by `nq × k` `float32` L2 distances. Each file contains 100,000 queries × 10 neighbors.
-
-Download URLs follow the pattern:
 ```bash
 wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts_bin/gts_dino_patch_{nb}_k10.bin
+# e.g. nb = 1000000, 200000000, 1000000000, 2000000000, ...
 ```
+
+Ground-truth files are available for: 100K, 200K, 500K, 1M, 5M, 10M, 20M, 50M,
+100M, 200M, 500M, 1B, and 2B.
 
 
 ## Development
 
 ### Embedding Generation
 
-Image patches from the YFCC100M dataset were processed through a DINOv3 ViT-L/16 model ([facebook/dinov3-vitl16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m)). The resulting embeddings were quantized to uint8 and stored in chunked `.bvecs` format for efficient streaming access.
+Image patches from the YFCC100M dataset were processed through a DINOv3
+ViT-L/16 model
+([facebook/dinov3-vitl16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m)).
+The resulting embeddings were quantized to `uint8` and stored in the `.u8bin`
+competition format.
 
 ### Training Set
 
-A training set ([`train_queries_99M.bvecs`](http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/train_queries_99M.bvecs), ~100GB) containing 99 million vectors is available for training quantizers or other index structures.
-
-### Notes
-
-- Each chunk file contains exactly 200 million vectors. When using a dataset size that is not a multiple of 200M, only a prefix of the last required chunk is used.
-- For large batch sizes, prefer batch sizes that are divisors of 200,000,000 to avoid splitting batches across chunk boundaries, which causes overhead from concatenation.
+A training set
+([`train_queries_99M.bvecs`](http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/train_queries_99M.bvecs),
+~100 GB) containing 99 million vectors is available for training quantizers or
+other index structures.

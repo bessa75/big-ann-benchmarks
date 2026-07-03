@@ -1331,7 +1331,7 @@ class DINO10BDataset(BillionScaleDatasetCompetitionFormat):
     download accelerator. Every smaller size downloads only the first N
     vectors of the 1B file (a cropped prefix, with the header count rewritten)
     so that researchers on small machines never have to fetch the whole file.
-    Queries are shared across sizes; ground truth (top-10) is pre-computed per
+    Queries are shared across sizes; ground truth (top-100) is pre-computed per
     size.
 
     This is a BillionScaleDatasetCompetitionFormat, so the standard runner can
@@ -1367,7 +1367,7 @@ class DINO10BDataset(BillionScaleDatasetCompetitionFormat):
         self.ds_fn = ("dino_vitl_2B_base.u8bin" if self.nb == self.FULL_2B
                       else "dino_vitl_1B_base.u8bin")
         self.qs_fn = "queries_clean.bvecs"
-        self.gt_fn = "gts_dino_patch_%d_k10.bin" % self.nb
+        self.gt_fn = "gts_dino_patch_%d_k100.bin" % self.nb
         self.private_nq = 0
         self.private_qs_url = None
         self.private_gt_url = None

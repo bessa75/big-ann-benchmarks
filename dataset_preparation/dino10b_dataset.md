@@ -30,7 +30,7 @@ under the [Creative Commons Attribution-NonCommercial 4.0 (CC BY-NC) license](ht
 | Query vectors | 100,000 |
 | Training vectors | 99,000,000 |
 | Distance metric | L2 (Euclidean) |
-| Ground truth | Top-10 nearest neighbors |
+| Ground truth | Top-100 nearest neighbors |
 
 
 ## Using the dataset in this framework
@@ -70,6 +70,28 @@ Sizes of exactly 1B or 2B download the corresponding complete file with the
 (`axel`), so make sure it is on your `PATH` for those sizes.
 
 
+## Sizes beyond 2B (5B and 10B)
+
+This framework intentionally stops at **2B**. The competition ground-truth format
+stores neighbor indices as `int32`, whose maximum value (≈ 2.147B) cannot address a
+5B or 10B database, and the `.u8bin` base header is a single `uint32` (max ≈ 4.29B).
+So the 5B and 10B subsets cannot be represented in the competition `.bin`/`.u8bin`
+files, and no loader is provided for them here (the `gts_bin/` `.bin` ground truth is
+published only for sizes ≤ 2B).
+
+The **full 10B corpus is still available** and can be used directly through the
+[faiss](https://github.com/facebookresearch/faiss) library, whose dataset class reads
+the chunked base and `int64` ground truth, so 5B/10B neighbor IDs are represented
+correctly:
+
+- faiss `contrib/datasets.py` → `DatasetDINO10B` (supports 100K … 10B).
+
+It streams the base from the chunked `.bvecs` files under
+`dino_vitl_10B/chunked_base_10B/chunk_*.bvecs` and reads ground truth from the `int64`
+`.npy` files under `dino_vitl_10B/gts/gts_dino_patch_<nb>_k10.npy` (rather than the
+`gts_bin/` `.bin` files this framework uses). Ground truth on that path is top-10 (k ≤ 10).
+
+
 ## Files and Format
 
 All files live under
@@ -97,10 +119,10 @@ wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/queries_clean.bve
 **Ground truth** is pre-computed per size (always the first N vectors of the
 corpus). Files use the standard competition KNN format: a header of two
 `uint32` values (`nq`, `k`), then `nq × k` `int32` neighbor indices, then
-`nq × k` `float32` L2 distances. Each file has 100,000 queries × 10 neighbors:
+`nq × k` `float32` (squared) L2 distances. Each file has 100,000 queries × 100 neighbors:
 
 ```bash
-wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts_bin/gts_dino_patch_{nb}_k10.bin
+wget http://dl.fbaipublicfiles.com/large_objects/dino_vitl_10B/gts_bin/gts_dino_patch_{nb}_k100.bin
 # e.g. nb = 1000000, 200000000, 1000000000, 2000000000, ...
 ```
 
